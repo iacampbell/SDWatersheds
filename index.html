@@ -1,0 +1,1285 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        #map {
+            width: 1265px;
+            height: 769px;
+        }
+        </style>
+        <title>Southern San Diego County Watersheds</title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="data/Clipped_1.js"></script>
+        <script src="data/PrecipAndEVICorrelation_2.js"></script>
+        <script src="data/PercentDeveloped_3.js"></script>
+        <script src="data/PercentForest_4.js"></script>
+        <script src="data/AverageGrowth_5.js"></script>
+        <script src="data/Precipitation_6.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+
+            if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
+              highlightLayer.setStyle({
+                color: '#ffff00',
+              });
+            } else {
+              highlightLayer.setStyle({
+                fillColor: '#ffff00',
+                fillOpacity: 1
+              });
+            }
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[32.53911780521516,-117.29451033232287],[33.1244011502442,-116.33073867030014]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // add class to format popup if it contains media
+		function addClassToPopupIfMedia(content, popup) {
+			var tempDiv = document.createElement('div');
+			tempDiv.innerHTML = content;
+			if (tempDiv.querySelector('td img')) {
+				popup._contentNode.classList.add('media');
+					// Delay to force the redraw
+					setTimeout(function() {
+						popup.update();
+					}, 10);
+			} else {
+				popup._contentNode.classList.remove('media');
+			}
+		}
+        var title = new L.Control({'position':'topleft'});
+        title.onAdd = function (map) {
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        title.update = function () {
+            this._div.innerHTML = '<h2>Southern San Diego County Watersheds</h2>';
+        };
+        title.addTo(map);
+        var abstract = new L.Control({'position':'bottomright'});
+        abstract.onAdd = function (map) {
+            this._div = L.DomUtil.create('div',
+            'leaflet-control abstract');
+            this._div.id = 'abstract'
+                this._div.setAttribute("onmouseenter", "abstract.show()");
+                this._div.setAttribute("onmouseleave", "abstract.hide()");
+                this.hide();
+                return this._div;
+            };
+            abstract.hide = function () {
+                this._div.classList.remove("abstractUncollapsed");
+                this._div.classList.add("abstract");
+                this._div.innerHTML = 'i'
+            }
+            abstract.show = function () {
+                this._div.classList.remove("abstract");
+                this._div.classList.add("abstractUncollapsed");
+                this._div.innerHTML = 'This map is a visualization created to display Southern San Diego County Watersheds and relevant climactic and land cover relationships. <br />Watershed Data: USGS- The Watershed Boundary Dataset (WBD) from The National Map (TNM) HUC10<br />Precipitation Data: CHIRPS Pentad - 4.8km<br />Land Cover Data: National Land Cover Database 2021 (NLCD21)<br />Vegetation Productivity: NASA MODIS- Enhanced Vegetation Index (EVI)<br />Reservoirs- CDFW Open Data California Lakes';
+        };
+        abstract.addTo(map);
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'feet',
+            secondaryLengthUnit: 'miles',
+            primaryAreaUnit: 'sqfeet',
+            secondaryAreaUnit: 'sqmiles'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_ESRIWorldTopo_0');
+        map.getPane('pane_ESRIWorldTopo_0').style.zIndex = 400;
+        var layer_ESRIWorldTopo_0 = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+            pane: 'pane_ESRIWorldTopo_0',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 20
+        });
+        layer_ESRIWorldTopo_0;
+        map.addLayer(layer_ESRIWorldTopo_0);
+        function pop_Clipped_1(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['fid'] !== null ? autolinker.link(feature.properties['fid'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['OBJECTID'] !== null ? autolinker.link(feature.properties['OBJECTID'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Name'] !== null ? autolinker.link(feature.properties['Name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['DFGWATERID'] !== null ? autolinker.link(feature.properties['DFGWATERID'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Mouth_Lat'] !== null ? autolinker.link(feature.properties['Mouth_Lat'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Mouth_Long'] !== null ? autolinker.link(feature.properties['Mouth_Long'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Down_Name'] !== null ? autolinker.link(feature.properties['Down_Name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Down_ID'] !== null ? autolinker.link(feature.properties['Down_ID'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Mouth_Meas'] !== null ? autolinker.link(feature.properties['Mouth_Meas'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Source_Mea'] !== null ? autolinker.link(feature.properties['Source_Mea'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['EditVersio'] !== null ? autolinker.link(feature.properties['EditVersio'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['EditNotes'] !== null ? autolinker.link(feature.properties['EditNotes'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['EventAlert'] !== null ? autolinker.link(feature.properties['EventAlert'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['GNIS_ID'] !== null ? autolinker.link(feature.properties['GNIS_ID'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NHD_Perman'] !== null ? autolinker.link(feature.properties['NHD_Perman'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Alternate_'] !== null ? autolinker.link(feature.properties['Alternate_'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Enabled'] !== null ? autolinker.link(feature.properties['Enabled'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NHD_Edit'] !== null ? autolinker.link(feature.properties['NHD_Edit'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Hydrologic'] !== null ? autolinker.link(feature.properties['Hydrologic'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Hydrolog_1'] !== null ? autolinker.link(feature.properties['Hydrolog_1'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Hydrolog_2'] !== null ? autolinker.link(feature.properties['Hydrolog_2'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['Shape__Len'] !== null ? autolinker.link(feature.properties['Shape__Len'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['GlobalID'] !== null ? autolinker.link(feature.properties['GlobalID'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Clipped_1_0() {
+            return {
+                pane: 'pane_Clipped_1',
+                opacity: 1,
+                color: 'rgba(29,9,252,1.0)',
+                dashArray: '',
+                lineCap: 'square',
+                lineJoin: 'bevel',
+                weight: 1.0,
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_Clipped_1');
+        map.getPane('pane_Clipped_1').style.zIndex = 401;
+        map.getPane('pane_Clipped_1').style['mix-blend-mode'] = 'normal';
+        var layer_Clipped_1 = new L.geoJson(json_Clipped_1, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Clipped_1',
+            layerName: 'layer_Clipped_1',
+            pane: 'pane_Clipped_1',
+            onEachFeature: pop_Clipped_1,
+            style: style_Clipped_1_0,
+        });
+        bounds_group.addLayer(layer_Clipped_1);
+        function pop_PrecipAndEVICorrelation_2(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">areaacres</th>\
+                        <td class="visible-with-data" id="areaacres">' + (feature.properties['areaacres'] !== null ? autolinker.link(feature.properties['areaacres'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">name</th>\
+                        <td class="visible-with-data" id="name">' + (feature.properties['name'] !== null ? autolinker.link(feature.properties['name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Correlation Coefficient</th>\
+                        <td class="visible-with-data" id="SpearmanCC">' + (feature.properties['SpearmanCC'] !== null ? autolinker.link(feature.properties['SpearmanCC'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_PrecipAndEVICorrelation_2_0(feature) {
+            if (feature.properties['SpearmanCC'] >= 0.370000 && feature.properties['SpearmanCC'] <= 0.370000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,235,226,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.370000 && feature.properties['SpearmanCC'] <= 0.460000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(253,211,208,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.460000 && feature.properties['SpearmanCC'] <= 0.480000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(251,186,190,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.480000 && feature.properties['SpearmanCC'] <= 0.490000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(250,155,177,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.490000 && feature.properties['SpearmanCC'] <= 0.520000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(248,121,166,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.520000 && feature.properties['SpearmanCC'] <= 0.610000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(236,87,156,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.610000 && feature.properties['SpearmanCC'] <= 0.640000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(214,53,146,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.640000 && feature.properties['SpearmanCC'] <= 0.670000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(189,24,136,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.670000 && feature.properties['SpearmanCC'] <= 0.710000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(155,13,127,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['SpearmanCC'] >= 0.710000 && feature.properties['SpearmanCC'] <= 0.730000 ) {
+                return {
+                pane: 'pane_PrecipAndEVICorrelation_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(122,1,119,0.738)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_PrecipAndEVICorrelation_2');
+        map.getPane('pane_PrecipAndEVICorrelation_2').style.zIndex = 402;
+        map.getPane('pane_PrecipAndEVICorrelation_2').style['mix-blend-mode'] = 'normal';
+        var layer_PrecipAndEVICorrelation_2 = new L.geoJson(json_PrecipAndEVICorrelation_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_PrecipAndEVICorrelation_2',
+            layerName: 'layer_PrecipAndEVICorrelation_2',
+            pane: 'pane_PrecipAndEVICorrelation_2',
+            onEachFeature: pop_PrecipAndEVICorrelation_2,
+            style: style_PrecipAndEVICorrelation_2_0,
+        });
+        bounds_group.addLayer(layer_PrecipAndEVICorrelation_2);
+        function pop_PercentDeveloped_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">areaacres</th>\
+                        <td class="visible-with-data" id="areaacres">' + (feature.properties['areaacres'] !== null ? autolinker.link(feature.properties['areaacres'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">name</th>\
+                        <td class="visible-with-data" id="name">' + (feature.properties['name'] !== null ? autolinker.link(feature.properties['name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Percent of Developed Land</th>\
+                        <td class="visible-with-data" id="PercentDev">' + (feature.properties['PercentDev'] !== null ? autolinker.link(feature.properties['PercentDev'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_PercentDeveloped_3_0(feature) {
+            if (feature.properties['PercentDev'] >= 0.681000 && feature.properties['PercentDev'] <= 1.080000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,255,178,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 1.080000 && feature.properties['PercentDev'] <= 1.250000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(255,232,140,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 1.250000 && feature.properties['PercentDev'] <= 2.134000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,210,102,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 2.134000 && feature.properties['PercentDev'] <= 4.799000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(254,183,81,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 4.799000 && feature.properties['PercentDev'] <= 16.758000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(253,155,67,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 16.758000 && feature.properties['PercentDev'] <= 31.841000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(250,123,54,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 31.841000 && feature.properties['PercentDev'] <= 45.533000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(244,86,41,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 45.533000 && feature.properties['PercentDev'] <= 52.023000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(234,52,33,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 52.023000 && feature.properties['PercentDev'] <= 57.593000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(212,26,35,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['PercentDev'] >= 57.593000 && feature.properties['PercentDev'] <= 74.329000 ) {
+                return {
+                pane: 'pane_PercentDeveloped_3',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(189,0,38,0.738)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_PercentDeveloped_3');
+        map.getPane('pane_PercentDeveloped_3').style.zIndex = 403;
+        map.getPane('pane_PercentDeveloped_3').style['mix-blend-mode'] = 'normal';
+        var layer_PercentDeveloped_3 = new L.geoJson(json_PercentDeveloped_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_PercentDeveloped_3',
+            layerName: 'layer_PercentDeveloped_3',
+            pane: 'pane_PercentDeveloped_3',
+            onEachFeature: pop_PercentDeveloped_3,
+            style: style_PercentDeveloped_3_0,
+        });
+        bounds_group.addLayer(layer_PercentDeveloped_3);
+        function pop_PercentForest_4(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">areaacres</th>\
+                        <td class="visible-with-data" id="areaacres">' + (feature.properties['areaacres'] !== null ? autolinker.link(feature.properties['areaacres'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">name</th>\
+                        <td class="visible-with-data" id="name">' + (feature.properties['name'] !== null ? autolinker.link(feature.properties['name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Percent of Forested Land</th>\
+                        <td class="visible-with-data" id="Forested">' + (feature.properties['Forested'] !== null ? autolinker.link(feature.properties['Forested'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_PercentForest_4_0(feature) {
+            if (feature.properties['Forest'] >= 0.209000 && feature.properties['Forest'] <= 0.230000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,68,27,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.188000 && feature.properties['Forest'] <= 0.209000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(3,112,46,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.167000 && feature.properties['Forest'] <= 0.188000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(36,140,69,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.146000 && feature.properties['Forest'] <= 0.167000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(61,167,90,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.125000 && feature.properties['Forest'] <= 0.146000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(102,189,111,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.083000 && feature.properties['Forest'] <= 0.104000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(178,224,171,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.104000 && feature.properties['Forest'] <= 0.125000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(142,208,140,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.062000 && feature.properties['Forest'] <= 0.083000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(208,236,201,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.041000 && feature.properties['Forest'] <= 0.062000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(232,246,227,0.738)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Forest'] >= 0.020000 && feature.properties['Forest'] <= 0.041000 ) {
+                return {
+                pane: 'pane_PercentForest_4',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.738)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,252,245,0.738)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_PercentForest_4');
+        map.getPane('pane_PercentForest_4').style.zIndex = 404;
+        map.getPane('pane_PercentForest_4').style['mix-blend-mode'] = 'normal';
+        var layer_PercentForest_4 = new L.geoJson(json_PercentForest_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_PercentForest_4',
+            layerName: 'layer_PercentForest_4',
+            pane: 'pane_PercentForest_4',
+            onEachFeature: pop_PercentForest_4,
+            style: style_PercentForest_4_0,
+        });
+        bounds_group.addLayer(layer_PercentForest_4);
+        function pop_AverageGrowth_5(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">areaacres</th>\
+                        <td class="visible-with-data" id="areaacres">' + (feature.properties['areaacres'] !== null ? autolinker.link(feature.properties['areaacres'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">name</th>\
+                        <td class="visible-with-data" id="name">' + (feature.properties['name'] !== null ? autolinker.link(feature.properties['name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Delta EVI</th>\
+                        <td class="visible-with-data" id="Watershe_2">' + (feature.properties['Watershe_2'] !== null ? autolinker.link(feature.properties['Watershe_2'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_AverageGrowth_5_0(feature) {
+            if (feature.properties['Watershe_2'] >= 0.030000 && feature.properties['Watershe_2'] <= 0.039000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,252,245,0.7411764705882353)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.039000 && feature.properties['Watershe_2'] <= 0.048000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(233,246,228,0.7490196078431373)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.048000 && feature.properties['Watershe_2'] <= 0.057000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(209,237,203,0.7529411764705882)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.057000 && feature.properties['Watershe_2'] <= 0.066000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(168,220,162,0.7529411764705882)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.066000 && feature.properties['Watershe_2'] <= 0.075000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(136,206,135,0.7450980392156863)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.075000 && feature.properties['Watershe_2'] <= 0.084000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(103,190,112,0.7450980392156863)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.084000 && feature.properties['Watershe_2'] <= 0.093000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(61,167,90,0.7529411764705882)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.093000 && feature.properties['Watershe_2'] <= 0.102000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(36,140,70,0.7529411764705882)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.102000 && feature.properties['Watershe_2'] <= 0.111000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(4,112,47,0.7411764705882353)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Watershe_2'] >= 0.111000 && feature.properties['Watershe_2'] <= 0.120000 ) {
+                return {
+                pane: 'pane_AverageGrowth_5',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(0,68,27,0.7294117647058823)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_AverageGrowth_5');
+        map.getPane('pane_AverageGrowth_5').style.zIndex = 405;
+        map.getPane('pane_AverageGrowth_5').style['mix-blend-mode'] = 'normal';
+        var layer_AverageGrowth_5 = new L.geoJson(json_AverageGrowth_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_AverageGrowth_5',
+            layerName: 'layer_AverageGrowth_5',
+            pane: 'pane_AverageGrowth_5',
+            onEachFeature: pop_AverageGrowth_5,
+            style: style_AverageGrowth_5_0,
+        });
+        bounds_group.addLayer(layer_AverageGrowth_5);
+        function pop_Precipitation_6(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">areaacres</th>\
+                        <td class="visible-with-data" id="areaacres">' + (feature.properties['areaacres'] !== null ? autolinker.link(feature.properties['areaacres'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">name</th>\
+                        <td class="visible-with-data" id="name">' + (feature.properties['name'] !== null ? autolinker.link(feature.properties['name'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Precipitation (mm)</th>\
+                        <td class="visible-with-data" id="Watershe_3">' + (feature.properties['Watershe_3'] !== null ? autolinker.link(feature.properties['Watershe_3'].toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_Precipitation_6_0(feature) {
+            if (feature.properties['precip'] >= 466.000000 && feature.properties['precip'] <= 473.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(247,251,255,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 473.000000 && feature.properties['precip'] <= 473.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(226,237,248,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 473.000000 && feature.properties['precip'] <= 475.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(205,224,241,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 475.000000 && feature.properties['precip'] <= 480.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(175,209,231,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 480.000000 && feature.properties['precip'] <= 482.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(137,190,220,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 482.000000 && feature.properties['precip'] <= 485.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(96,166,210,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 485.000000 && feature.properties['precip'] <= 619.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(62,142,196,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 619.000000 && feature.properties['precip'] <= 640.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(34,114,181,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 640.000000 && feature.properties['precip'] <= 644.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(10,84,158,0.779)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['precip'] >= 644.000000 && feature.properties['precip'] <= 645.000000 ) {
+                return {
+                pane: 'pane_Precipitation_6',
+                opacity: 1,
+                color: 'rgba(35,35,35,0.779)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(8,48,107,0.779)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_Precipitation_6');
+        map.getPane('pane_Precipitation_6').style.zIndex = 406;
+        map.getPane('pane_Precipitation_6').style['mix-blend-mode'] = 'normal';
+        var layer_Precipitation_6 = new L.geoJson(json_Precipitation_6, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_Precipitation_6',
+            layerName: 'layer_Precipitation_6',
+            pane: 'pane_Precipitation_6',
+            onEachFeature: pop_Precipitation_6,
+            style: style_Precipitation_6_0,
+        });
+        bounds_group.addLayer(layer_Precipitation_6);
+        map.addLayer(layer_Precipitation_6);
+        var baseMaps = {};
+        var overlaysTree = [
+            {label: 'Precipitation<br /><table><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4664730.png" /></td><td>466 - 473</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4734731.png" /></td><td>473 - 473</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4734752.png" /></td><td>473 - 475</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4754803.png" /></td><td>475 - 480</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4804824.png" /></td><td>480 - 482</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4824855.png" /></td><td>482 - 485</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_4856196.png" /></td><td>485 - 619</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_6196407.png" /></td><td>619 - 640</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_6406448.png" /></td><td>640 - 644</td></tr><tr><td style="text-align: center;"><img src="legend/Precipitation_6_6446459.png" /></td><td>644 - 645</td></tr></table>', layer: layer_Precipitation_6},
+            {label: 'AverageGrowth<br /><table><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_00300390.png" /></td><td>0.03 - 0.039</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_003900481.png" /></td><td>0.039 - 0.048</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_004800572.png" /></td><td>0.048 - 0.057</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_005700663.png" /></td><td>0.057 - 0.066</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_006600754.png" /></td><td>0.066 - 0.075</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_007500845.png" /></td><td>0.075 - 0.084</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_008400936.png" /></td><td>0.084 - 0.093</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_009301027.png" /></td><td>0.093 - 0.102</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_010201118.png" /></td><td>0.102 - 0.111</td></tr><tr><td style="text-align: center;"><img src="legend/AverageGrowth_5_01110129.png" /></td><td>0.111 - 0.12</td></tr></table>', layer: layer_AverageGrowth_5},
+            {label: 'PercentForest<br /><table><tr><td style="text-align: center;"><img src="legend/PercentForest_4_22240.png" /></td><td>22%-24%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_19211.png" /></td><td>19%-21%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_16182.png" /></td><td>16% - 18%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_13153.png" /></td><td>13% - 15%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_10124.png" /></td><td>10% - 12%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_795.png" /></td><td>7% - 9%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_466.png" /></td><td>4%-6%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_137.png" /></td><td>1% - 3%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_05098.png" /></td><td>0.5% - 0.9%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentForest_4_0049.png" /></td><td>0 % - 0.4%</td></tr></table>', layer: layer_PercentForest_4},
+            {label: 'PercentDeveloped<br /><table><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_0681080.png" /></td><td>0.68% - 1.08%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_1081251.png" /></td><td>1.08% - 1.25%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_1252132.png" /></td><td>1.25% - 2.13%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_213483.png" /></td><td>2.13% - 4.8%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_4816764.png" /></td><td>4.8% - 16.76%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_167631845.png" /></td><td>16.76% - 31.84%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_318445536.png" /></td><td>31.84% - 45.53%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_455352027.png" /></td><td>45.53%- 52.02%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_520257598.png" /></td><td>52.02% - 57.59%</td></tr><tr><td style="text-align: center;"><img src="legend/PercentDeveloped_3_575974339.png" /></td><td>57.59% - 74.33%</td></tr></table>', layer: layer_PercentDeveloped_3},
+            {label: 'PrecipAndEVICorrelation<br /><table><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0370370.png" /></td><td>0.37 - 0.37</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0370461.png" /></td><td>0.37 - 0.46</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0460482.png" /></td><td>0.46 - 0.48</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0480493.png" /></td><td>0.48 - 0.49</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0490524.png" /></td><td>0.49 - 0.52</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0520615.png" /></td><td>0.52 - 0.61</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0610646.png" /></td><td>0.61 - 0.64</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0640677.png" /></td><td>0.64 - 0.67</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0670718.png" /></td><td>0.67 - 0.71</td></tr><tr><td style="text-align: center;"><img src="legend/PrecipAndEVICorrelation_2_0710739.png" /></td><td>0.71 - 0.73</td></tr></table>', layer: layer_PrecipAndEVICorrelation_2},
+            {label: '<img src="legend/Clipped_1.png" /> Clipped', layer: layer_Clipped_1},
+            {label: "ESRI World Topo", layer: layer_ESRIWorldTopo_0},]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        resetLabels([layer_PrecipAndEVICorrelation_2,layer_PercentDeveloped_3,layer_PercentForest_4,layer_AverageGrowth_5,layer_Precipitation_6]);
+        map.on("zoomend", function(){
+            resetLabels([layer_PrecipAndEVICorrelation_2,layer_PercentDeveloped_3,layer_PercentForest_4,layer_AverageGrowth_5,layer_Precipitation_6]);
+        });
+        map.on("layeradd", function(){
+            resetLabels([layer_PrecipAndEVICorrelation_2,layer_PercentDeveloped_3,layer_PercentForest_4,layer_AverageGrowth_5,layer_Precipitation_6]);
+        });
+        map.on("layerremove", function(){
+            resetLabels([layer_PrecipAndEVICorrelation_2,layer_PercentDeveloped_3,layer_PercentForest_4,layer_AverageGrowth_5,layer_Precipitation_6]);
+        });
+        </script>
+    </body>
+</html>
